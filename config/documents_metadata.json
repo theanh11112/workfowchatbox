@@ -1,0 +1,50 @@
+# config/documents_metadata.json
+import json
+
+metadata = {
+    "documents": [
+        {
+            "id": "policy_001",
+            "file_path": "documents/policy/leave_policy.md",
+            "category": "policy",
+            "allowed_roles": ["employee", "manager", "hr"],
+            "title": "Chính sách nghỉ phép",
+            "description": "Quy định về các loại phép năm, phép ốm, phép không lương",
+            "created_date": "2024-01-01",
+            "version": "1.0"
+        },
+        {
+            "id": "salary_001",
+            "file_path": "documents/salary/salary_structure.md",
+            "category": "salary", 
+            "allowed_roles": ["manager", "hr"],
+            "title": "Cơ cấu lương thưởng",
+            "description": "Thang bảng lương và các chính sách thưởng",
+            "created_date": "2024-01-01",
+            "version": "1.0"
+        },
+        {
+            "id": "rules_001", 
+            "file_path": "documents/rules/company_rules.md",
+            "category": "rules",
+            "allowed_roles": ["employee", "manager", "hr"],
+            "title": "Nội quy công ty",
+            "description": "Quy định về giờ làm việc, trang phục, kỷ luật",
+            "created_date": "2024-01-01",
+            "version": "1.0"
+        }
+    ],
+    "categories": {
+        "policy": "Chính sách công ty",
+        "salary": "Lương thưởng", 
+        "rules": "Nội quy",
+        "confidential": "Thông tin bảo mật",
+        "basic_info": "Thông tin cơ bản"
+    }
+}
+
+# Lưu file
+with open('config/documents_metadata.json', 'w', encoding='utf-8') as f:
+    json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+print("✅ Đã tạo file metadata thành công!")
