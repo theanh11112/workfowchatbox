@@ -1,83 +1,60 @@
-# scripts/vector_store_manager.py
+# scripts/vector_store_simple.py
 import json
-import chromadb
-from chromadb.config import Settings
-import numpy as np
 import os
 import sys
+import numpy as np
 
 class SimpleVectorStore:
-    def __init__(self, persist_directory="./chroma_db"):
-        """Khởi tạo vector store đơn giản"""
+    def __init__(self, persist_directory="./simple_vector_store"):
+        """Vector store đơn giản sử dụng numpy"""
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
-        
-        # Khởi tạo ChromaDB client
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        print("✅ Đã khởi tạo ChromaDB client")
+        self.vectors = {}
+        self.metadata = {}
+        print("✅ Đã khởi tạo Simple Vector Store")
     
-    def create_simple_embeddings(self, texts):
-        """Tạo embeddings đơn giản (placeholder - sẽ thay bằng model thật sau)"""
-        print("🔧 Đang tạo embeddings...")
-        embeddings = []
+    def create_simple_embedding(self, text):
+        """Tạo embedding đơn giản từ text"""
+        # Tạo vector giả định dựa trên độ dài text và các từ khóa
+        words = text.lower().split()
+        vector = np.zeros(100)  # Vector 100 dimensions
         
-        for text in texts:
-            # Tạo vector giả định có 384 dimensions (giống sentence-transformers)
-            words = text.split()
-            vector = np.random.randn(384).tolist()  # Vector ngẫu nhiên tạm thời
-            embeddings.append(vector)
+        # Đơn giản: mỗi từ đóng góp vào vector
+        for i, word in enumerate(words[:100]):  # Giới hạn 100 từ đầu
+            # Tạo hash đơn giản từ từ
+            hash_val = hash(word) % 100
+            vector[hash_val] += 1
         
-        return embeddings
+        # Chuẩn hóa vector
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+            
+        return vector.tolist()
     
-    def create_collection(self, collection_name="company_documents"):
-        """Tạo collection trong ChromaDB"""
-        try:
-            # Thử lấy collection nếu đã tồn tại
-            collection = self.client.get_collection(collection_name)
-            print(f"✅ Collection '{collection_name}' đã tồn tại")
-            return collection
-        except Exception as e:
-            # Tạo collection mới
-            collection = self.client.create_collection(
-                name=collection_name,
-                metadata={"hnsw:space": "cosine"}  # Sử dụng cosine similarity
-            )
-            print(f"✅ Đã tạo collection mới: '{collection_name}'")
-            return collection
-    
-    def add_documents_to_collection(self, collection, chunks):
-        """Thêm documents vào vector database"""
-        print("📥 Đang thêm documents vào vector database...")
-        
-        documents = []
-        metadatas = []
-        ids = []
+    def add_documents(self, chunks):
+        """Thêm documents vào vector store"""
+        print("📥 Đang thêm documents vào vector store...")
         
         for chunk in chunks:
-            documents.append(chunk['content'])
-            metadatas.append({
+            chunk_id = chunk['id']
+            content = chunk['content']
+            
+            # Tạo embedding
+            embedding = self.create_simple_embedding(content)
+            
+            # Lưu vector và metadata
+            self.vectors[chunk_id] = embedding
+            self.metadata[chunk_id] = {
                 "document_id": chunk['document_id'],
                 "category": chunk['category'],
-                "allowed_roles": json.dumps(chunk['allowed_roles']),  # Lưu dạng JSON string
+                "allowed_roles": chunk['allowed_roles'],
                 "title": chunk['title'],
-                "chunk_index": chunk['chunk_index'],
-                "total_chunks": chunk['total_chunks'],
+                "content": content[:200] + "..." if len(content) > 200 else content,  # Lưu preview
                 "word_count": chunk['word_count']
-            })
-            ids.append(chunk['id'])
+            }
         
-        # Tạo embeddings đơn giản
-        embeddings = self.create_simple_embeddings(documents)
-        
-        # Thêm vào collection
-        collection.add(
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids
-        )
-        
-        print(f"✅ Đã thêm {len(documents)} documents vào collection")
+        print(f"✅ Đã thêm {len(chunks)} documents")
         
         # Thống kê
         categories = {}
@@ -89,66 +66,119 @@ class SimpleVectorStore:
         for cat, count in categories.items():
             print(f"   • {cat}: {count} chunks")
     
-    def test_search(self, collection, query_text="nghỉ phép", n_results=3):
-        """Test tìm kiếm trong vector database"""
-        print(f"\n🔍 TEST TÌM KIẾM: '{query_text}'")
+    def cosine_similarity(self, vec1, vec2):
+        """Tính cosine similarity giữa 2 vectors"""
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0
+        return dot_product / (norm1 * norm2)
+    
+    def search(self, query, n_results=3):
+        """Tìm kiếm documents tương tự"""
+        print(f"\n🔍 TÌM KIẾM: '{query}'")
         
         # Tạo embedding cho query
-        query_embedding = self.create_simple_embeddings([query_text])[0]
+        query_embedding = self.create_simple_embedding(query)
         
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results
-        )
+        # Tính similarity với tất cả documents
+        similarities = []
+        for chunk_id, vector in self.vectors.items():
+            similarity = self.cosine_similarity(query_embedding, vector)
+            similarities.append((chunk_id, similarity))
         
-        print(f"✅ Tìm thấy {len(results['documents'][0])} kết quả:")
+        # Sắp xếp theo similarity (cao nhất trước)
+        similarities.sort(key=lambda x: x[1], reverse=True)
         
-        for i, (doc, metadata, distance) in enumerate(zip(
-            results['documents'][0], 
-            results['metadatas'][0], 
-            results['distances'][0]
-        )):
-            print(f"\n--- Kết quả {i+1} (distance: {distance:.4f}) ---")
+        # Lấy kết quả top n
+        top_results = similarities[:n_results]
+        
+        print(f"✅ Tìm thấy {len(top_results)} kết quả phù hợp:")
+        
+        for i, (chunk_id, similarity) in enumerate(top_results):
+            metadata = self.metadata[chunk_id]
+            print(f"\n--- Kết quả {i+1} (similarity: {similarity:.4f}) ---")
+            print(f"ID: {chunk_id}")
             print(f"Title: {metadata['title']}")
             print(f"Category: {metadata['category']}")
-            print(f"Content: {doc[:100]}...")
+            print(f"Roles: {metadata['allowed_roles']}")
+            print(f"Content: {metadata['content']}")
+    
+    def save(self):
+        """Lưu vector store"""
+        import pickle
+        
+        data = {
+            'vectors': self.vectors,
+            'metadata': self.metadata
+        }
+        
+        with open(f'{self.persist_directory}/vector_store.pkl', 'wb') as f:
+            pickle.dump(data, f)
+        
+        print(f"💾 Đã lưu vector store tại: {self.persist_directory}/vector_store.pkl")
+    
+    def load(self):
+        """Tải vector store"""
+        import pickle
+        
+        try:
+            with open(f'{self.persist_directory}/vector_store.pkl', 'rb') as f:
+                data = pickle.load(f)
+            
+            self.vectors = data['vectors']
+            self.metadata = data['metadata']
+            print(f"📂 Đã tải vector store với {len(self.vectors)} documents")
+            return True
+        except FileNotFoundError:
+            print("ℹ️  Chưa có vector store được lưu")
+            return False
 
 def main():
-    # Khởi tạo vector store
-    print("🚀 BẮT ĐẦU THIẾT LẬP VECTOR DATABASE")
+    print("🚀 BẮT ĐẦU THIẾT LẬP VECTOR STORE")
     print("=" * 50)
     
+    # Khởi tạo vector store
     vector_store = SimpleVectorStore()
     
-    # Tạo collection
-    collection = vector_store.create_collection()
+    # Thử tải vector store đã lưu
+    if not vector_store.load():
+        # Nếu chưa có, tạo mới từ chunks
+        try:
+            with open('outputs/document_chunks.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            chunks = data['chunks']
+            print(f"📖 Đã load {len(chunks)} chunks từ file")
+            
+            # Thêm documents vào vector store
+            vector_store.add_documents(chunks)
+            
+            # Lưu vector store
+            vector_store.save()
+            
+        except FileNotFoundError:
+            print("❌ File outputs/document_chunks.json không tồn tại")
+            print("   Hãy chạy Bước 1.2 trước")
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ Lỗi: {e}")
+            sys.exit(1)
     
-    # Load chunks từ bước trước
-    try:
-        with open('outputs/document_chunks.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        chunks = data['chunks']
-        print(f"📖 Đã load {len(chunks)} chunks từ file")
-        
-        # Thêm documents vào collection
-        vector_store.add_documents_to_collection(collection, chunks)
-        
-        # Test search
-        vector_store.test_search(collection, "nghỉ phép")
-        vector_store.test_search(collection, "lương thưởng")
-        vector_store.test_search(collection, "giờ làm việc")
-        
-        print(f"\n🎉 HOÀN THÀNH THIẾT LẬP VECTOR DATABASE")
-        print(f"📁 Database location: ./chroma_db")
-        
-    except FileNotFoundError:
-        print("❌ File outputs/document_chunks.json không tồn tại")
-        print("   Hãy chạy Bước 1.2 trước")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ Lỗi: {e}")
-        sys.exit(1)
+    # Test tìm kiếm
+    print("\n" + "=" * 50)
+    print("🧪 TEST TÌM KIẾM")
+    print("=" * 50)
+    
+    vector_store.search("nghỉ phép", n_results=2)
+    vector_store.search("lương thưởng", n_results=2)
+    vector_store.search("giờ làm việc", n_results=2)
+    vector_store.search("bảo hiểm xã hội", n_results=2)
+    
+    print(f"\n🎉 HOÀN THÀNH THIẾT LẬP VECTOR STORE")
+    print(f"📁 Vector store location: ./simple_vector_store")
 
 if __name__ == "__main__":
     main()

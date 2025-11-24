@@ -1,13 +1,37 @@
 # scripts/search_api.py
 import json
-import chromadb
-from user_manager import UserManager
+import pickle
+import numpy as np
+import sys
+import os
+
+# Thêm current directory vào Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import UserManager
+try:
+    from scripts.user_manager import UserManager
+except ImportError:
+    # Fallback: import trực tiếp nếu chạy từ thư mục scripts
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("user_manager", "user_manager.py")
+    user_manager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(user_manager)
+    UserManager = user_manager.UserManager
 
 class SearchAPI:
     def __init__(self):
         self.user_mgr = UserManager()
-        self.vector_store = chromadb.PersistentClient(path="./chroma_db")
-        self.collection = self.vector_store.get_collection("company_documents")
+        self.vector_store = self._load_vector_store()
+    
+    def _load_vector_store(self):
+        """Tải Simple Vector Store"""
+        try:
+            with open('./simple_vector_store/vector_store.pkl', 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            print(f"❌ Lỗi tải vector store: {e}")
+            return {'vectors': {}, 'metadata': {}}
     
     def search_with_permissions(self, user_id, query, top_k=5):
         """Tìm kiếm với kiểm tra phân quyền"""
@@ -24,23 +48,36 @@ class SearchAPI:
         print(f"   Role: {user_permissions['role']}")
         print(f"   Categories được phép: {user_permissions['allowed_categories']}")
         
-        # Tạo embedding đơn giản cho query (tạm thời)
+        # Tạo embedding cho query
         query_embedding = self._create_simple_embedding(query)
         
-        # Tìm kiếm trong vector database
+        # Tìm kiếm trong vector store
         try:
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k * 2  # Lấy nhiều hơn để filter
-            )
+            # Tính similarity với tất cả documents
+            similarities = []
+            for chunk_id, vector in self.vector_store['vectors'].items():
+                similarity = self.cosine_similarity(query_embedding, vector)
+                metadata = self.vector_store['metadata'][chunk_id]
+                
+                # Chỉ thêm nếu category được phép
+                if metadata['category'] in user_permissions['allowed_categories']:
+                    similarities.append((chunk_id, similarity, metadata))
             
-            # Lọc kết quả theo permissions
-            filtered_results = self._filter_results_by_permission(
-                results, user_permissions['allowed_categories']
-            )
+            # Sắp xếp theo similarity (cao nhất trước)
+            similarities.sort(key=lambda x: x[1], reverse=True)
             
             # Giới hạn số kết quả
-            final_results = filtered_results[:top_k]
+            final_results = similarities[:top_k]
+            
+            # Format kết quả
+            formatted_results = []
+            for chunk_id, similarity, metadata in final_results:
+                formatted_results.append({
+                    'id': chunk_id,
+                    'content': metadata.get('content', ''),
+                    'metadata': metadata,
+                    'similarity': similarity
+                })
             
             return {
                 "user_info": {
@@ -49,10 +86,9 @@ class SearchAPI:
                     "role": user_permissions['role']
                 },
                 "query": query,
-                "total_found": len(results['documents'][0]),
-                "total_after_filter": len(final_results),
+                "total_found": len(similarities),
                 "allowed_categories": user_permissions['allowed_categories'],
-                "results": final_results
+                "results": formatted_results
             }
             
         except Exception as e:
@@ -62,32 +98,29 @@ class SearchAPI:
             }
     
     def _create_simple_embedding(self, text):
-        """Tạo embedding đơn giản (sẽ thay bằng model thật sau)"""
-        # Vector 384 dimensions ngẫu nhiên tạm thời
-        import numpy as np
-        return np.random.randn(384).tolist()
-    
-    def _filter_results_by_permission(self, results, allowed_categories):
-        """Lọc kết quả theo categories được phép"""
-        filtered_docs = []
-        filtered_metadatas = []
-        filtered_distances = []
-        filtered_ids = []
+        """Tạo embedding đơn giản từ text"""
+        words = text.lower().split()
+        vector = np.zeros(100)  # Vector 100 dimensions
         
-        for i in range(len(results['documents'][0])):
-            doc = results['documents'][0][i]
-            metadata = results['metadatas'][0][i]
-            distance = results['distances'][0][i]
-            doc_id = results['ids'][0][i]
+        for i, word in enumerate(words[:100]):
+            hash_val = hash(word) % 100
+            vector[hash_val] += 1
+        
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
             
-            # Kiểm tra category có được phép không
-            if metadata['category'] in allowed_categories:
-                filtered_docs.append(doc)
-                filtered_metadatas.append(metadata)
-                filtered_distances.append(distance)
-                filtered_ids.append(doc_id)
+        return vector
+    
+    def cosine_similarity(self, vec1, vec2):
+        """Tính cosine similarity giữa 2 vectors"""
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
         
-        return list(zip(filtered_docs, filtered_metadatas, filtered_distances, filtered_ids))
+        if norm1 == 0 or norm2 == 0:
+            return 0
+        return dot_product / (norm1 * norm2)
 
 def test_search_api():
     """Test Search API với các scenario khác nhau"""
@@ -102,13 +135,13 @@ def test_search_api():
         ('user001', 'nghỉ phép', 'Employee hỏi về policy'),
         ('user001', 'lương thưởng', 'Employee hỏi về salary'),
         ('user003', 'lương tháng 13', 'Manager hỏi về salary'),
-        ('user005', 'báo cáo tài chính', 'HR hỏi về confidential'),
-        ('admin001', 'tất cả thông tin', 'Admin hỏi tổng quát')
+        ('user005', 'bảo hiểm xã hội', 'HR hỏi về salary'),
+        ('admin001', 'thông tin', 'Admin hỏi tổng quát')
     ]
     
     for user_id, query, description in test_cases:
         print(f"\n🎯 {description}")
-        print("-" * 30)
+        print("-" * 40)
         
         result = api.search_with_permissions(user_id, query, top_k=2)
         
@@ -118,18 +151,21 @@ def test_search_api():
         
         print(f"👤 User: {result['user_info']['username']} ({result['user_info']['role']})")
         print(f"🔍 Query: '{result['query']}'")
-        print(f"📊 Kết quả: {result['total_after_filter']}/{result['total_found']} (sau/before filter)")
+        print(f"📊 Tìm thấy: {result['total_found']} kết quả")
         print(f"✅ Categories được phép: {result['allowed_categories']}")
         
         if result['results']:
-            for i, (doc, metadata, distance, doc_id) in enumerate(result['results']):
-                print(f"\n   --- Kết quả {i+1} (distance: {distance:.4f}) ---")
-                print(f"   📄 Title: {metadata['title']}")
-                print(f"   🏷️ Category: {metadata['category']}")
-                print(f"   👥 Roles: {json.loads(metadata['allowed_roles'])}")
-                print(f"   📝 Content: {doc[:80]}...")
+            for i, item in enumerate(result['results']):
+                print(f"\n   --- Kết quả {i+1} (similarity: {item['similarity']:.4f}) ---")
+                print(f"   📄 ID: {item['id']}")
+                print(f"   🏷️ Title: {item['metadata']['title']}")
+                print(f"   📂 Category: {item['metadata']['category']}")
+                print(f"   👥 Roles: {item['metadata']['allowed_roles']}")
+                print(f"   📝 Content: {item['content'][:80]}...")
         else:
             print("   ❌ Không có kết quả phù hợp với quyền truy cập")
+    
+    print(f"\n🎉 HOÀN THÀNH TEST SEARCH API")
 
 if __name__ == "__main__":
     test_search_api()
