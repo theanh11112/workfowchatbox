@@ -1,10 +1,23 @@
-# requirements.txt
 PyPDF2==3.0.1
 python-docx==1.1.0
-langchain==0.1.0
+
+# LangChain core
+langchain==0.1.17
+langchain-community==0.0.36
+langsmith==0.1.31
+
+# LangChain utilities
 langchain-text-splitters==0.0.1
+
+# Embedding model
 sentence-transformers==2.2.2
+
+# Vector DB
 chromadb==0.4.22
+
+# API server
 fastapi==0.104.1
 uvicorn==0.24.0
-sqlite3
+
+httpx==0.25.2
+pydantic==2.5.0

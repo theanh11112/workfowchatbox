@@ -3,7 +3,7 @@ import os
 import json
 import sys
 from pathlib import Path
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class DocumentProcessor:
     def __init__(self):
@@ -34,44 +34,86 @@ class DocumentProcessor:
     
     def _extract_from_pdf(self, file_path):
         """Extract text từ PDF"""
-        from PyPDF2 import PdfReader
-        
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
-        return text
+        try:
+            from PyPDF2 import PdfReader
+            
+            print(f"   📄 Đọc PDF: {file_path}")
+            reader = PdfReader(file_path)
+            text = ""
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+                print(f"     📖 Đã xử lý trang {i+1}/{len(reader.pages)}")
+            return text
+        except ImportError:
+            print("❌ PyPDF2 chưa được cài đặt")
+            return ""
+        except Exception as e:
+            print(f"❌ Lỗi đọc PDF {file_path}: {e}")
+            return ""
     
     def _extract_from_docx(self, file_path):
         """Extract text từ DOCX"""
-        from docx import Document
-        
-        doc = Document(file_path)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
-        return text
+        try:
+            from docx import Document
+            
+            print(f"   📄 Đọc DOCX: {file_path}")
+            doc = Document(file_path)
+            text = ""
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text += paragraph.text + "\n"
+            return text
+        except ImportError:
+            print("❌ python-docx chưa được cài đặt")
+            return ""
+        except Exception as e:
+            print(f"❌ Lỗi đọc DOCX {file_path}: {e}")
+            return ""
     
     def _extract_from_text(self, file_path):
         """Extract text từ TXT/MD"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
+        try:
+            print(f"   📄 Đọc text file: {file_path}")
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    return f.read()
+            except Exception as e:
+                print(f"❌ Lỗi encoding file {file_path}: {e}")
+                return ""
+        except Exception as e:
+            print(f"❌ Lỗi đọc file {file_path}: {e}")
+            return ""
     
     def clean_text(self, text):
         """Làm sạch text"""
         # Loại bỏ khoảng trắng thừa
         text = ' '.join(text.split())
-        # Loại bỏ ký tự đặc biệt nhưng giữ tiếng Việt
-        text = ''.join(char for char in text if char.isprintable() or char in ['\n', '\t'])
+        # Loại bỏ ký tự không in được nhưng giữ tiếng Việt
+        text = ''.join(char for char in text if char.isprintable() or char in ['\n', '\t', ' '])
         return text
     
     def process_documents(self, metadata_file, output_file):
         """Xử lý tất cả documents và tạo chunks"""
         print("📖 Bắt đầu xử lý documents...")
         
+        # Đảm bảo thư mục output tồn tại
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
         # Load metadata
-        with open(metadata_file, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        except FileNotFoundError:
+            print(f"❌ File metadata không tồn tại: {metadata_file}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"❌ Lỗi định dạng JSON trong file metadata: {e}")
+            return None
         
         all_chunks = []
         processed_count = 0
@@ -79,7 +121,7 @@ class DocumentProcessor:
         
         for doc_meta in metadata['documents']:
             file_path = doc_meta['file_path']
-            print(f"🔍 Đang xử lý: {file_path}")
+            print(f"\n🔍 Đang xử lý: {file_path}")
             
             if not os.path.exists(file_path):
                 print(f"❌ File không tồn tại: {file_path}")
@@ -98,9 +140,13 @@ class DocumentProcessor:
             cleaned_text = self.clean_text(raw_text)
             
             # Split thành chunks
-            chunks = self.text_splitter.split_text(cleaned_text)
-            
-            print(f"   ✅ Đã chia thành {len(chunks)} chunks")
+            try:
+                chunks = self.text_splitter.split_text(cleaned_text)
+                print(f"   ✅ Đã chia thành {len(chunks)} chunks")
+            except Exception as e:
+                print(f"❌ Lỗi khi split text: {e}")
+                error_count += 1
+                continue
             
             # Thêm metadata vào từng chunk
             for i, chunk in enumerate(chunks):
@@ -154,14 +200,17 @@ def main():
         output_file='outputs/document_chunks.json'
     )
     
-    # Hiển thị sample chunks
-    print(f"\n📝 SAMPLE CHUNKS:")
-    for i, chunk in enumerate(result['chunks'][:2]):  # Hiển thị 2 chunks đầu
-        print(f"\n--- Chunk {i+1} ---")
-        print(f"ID: {chunk['id']}")
-        print(f"Title: {chunk['title']}")
-        print(f"Content preview: {chunk['content'][:100]}...")
-        print(f"Word count: {chunk['word_count']}")
+    if result and result['chunks']:
+        # Hiển thị sample chunks
+        print(f"\n📝 SAMPLE CHUNKS:")
+        for i, chunk in enumerate(result['chunks'][:2]):  # Hiển thị 2 chunks đầu
+            print(f"\n--- Chunk {i+1} ---")
+            print(f"ID: {chunk['id']}")
+            print(f"Title: {chunk['title']}")
+            print(f"Content preview: {chunk['content'][:100]}...")
+            print(f"Word count: {chunk['word_count']}")
+    else:
+        print("❌ Không có chunks nào được tạo ra")
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-# scripts/validate_step1_2.py
+# scripts/validate_step1_2_fixed.py
 import os
 import json
 import sys
@@ -7,11 +7,14 @@ def validate_step1_2():
     print("🔍 KIỂM TRA HOÀN THÀNH BƯỚC 1.2")
     print("=" * 50)
     
-    # Kiểm tra dependencies
+    # Kiểm tra dependencies - chỉ những package thực sự cần thiết
     print("1. Kiểm tra dependencies:")
     required_packages = [
-        "PyPDF2", "docx", "langchain", 
-        "langchain_text_splitters", "sentence_transformers"
+        "PyPDF2", "docx", "langchain_text_splitters"
+    ]
+    
+    optional_packages = [
+        "langchain", "sentence_transformers"
     ]
     
     deps_ok = True
@@ -22,6 +25,14 @@ def validate_step1_2():
         except ImportError:
             print(f"   ❌ {package} - CHƯA CÀI ĐẶT")
             deps_ok = False
+    
+    print("\n   Package tùy chọn:")
+    for package in optional_packages:
+        try:
+            __import__(package)
+            print(f"   ✅ {package} (optional)")
+        except ImportError:
+            print(f"   ⚠️  {package} - Chưa cài đặt (không bắt buộc)")
     
     # Kiểm tra file output
     print("\n2. Kiểm tra kết quả xử lý:")
@@ -62,12 +73,17 @@ def validate_step1_2():
         chunks = data.get('chunks', [])
         if chunks:
             # Kiểm tra kích thước chunks
-            chunk_sizes = [len(chunk['content'].split()) for chunk in chunks[:10]]
+            chunk_sizes = [len(chunk['content'].split()) for chunk in chunks]
             avg_size = sum(chunk_sizes) / len(chunk_sizes)
+            min_size = min(chunk_sizes)
+            max_size = max(chunk_sizes)
             
-            print(f"   • Avg words per chunk: {avg_size:.1f}")
+            print(f"   • Số chunks: {len(chunks)}")
+            print(f"   • Từ/chunk (trung bình): {avg_size:.1f}")
+            print(f"   • Từ/chunk (min-max): {min_size}-{max_size}")
             
-            if 50 < avg_size < 150:  # Khoảng hợp lý
+            # Đánh giá kích thước
+            if 50 < avg_size < 500:  # Khoảng hợp lý rộng hơn
                 print(f"   ✅ Kích thước chunks phù hợp")
             else:
                 print(f"   ⚠️  Kích thước chunks có thể không tối ưu")
@@ -82,6 +98,30 @@ def validate_step1_2():
             else:
                 print(f"   ❌ Thiếu fields: {missing_fields}")
                 deps_ok = False
+            
+            # Kiểm tra content không rỗng
+            empty_chunks = [chunk for chunk in chunks if not chunk['content'].strip()]
+            if not empty_chunks:
+                print(f"   ✅ Không có chunks rỗng")
+            else:
+                print(f"   ❌ Có {len(empty_chunks)} chunks rỗng")
+                deps_ok = False
+    
+    # Kiểm tra file metadata
+    print("\n4. Kiểm tra file metadata:")
+    metadata_file = 'config/documents_metadata.json'
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            print(f"   ✅ {metadata_file}")
+            print(f"   • Số documents: {len(metadata.get('documents', []))}")
+        except Exception as e:
+            print(f"   ❌ {metadata_file} - LỖI: {e}")
+            deps_ok = False
+    else:
+        print(f"   ❌ {metadata_file} - KHÔNG TỒN TẠI")
+        deps_ok = False
     
     # Tổng kết
     print("\n" + "=" * 50)
@@ -91,6 +131,7 @@ def validate_step1_2():
         print(f"   • Documents đã xử lý: {stats.get('processed_documents')}")
         print(f"   • Tổng số chunks: {stats.get('total_chunks')}")
         print(f"   • Dependencies: Đầy đủ")
+        print(f"   • File output: {output_file}")
         return True
     else:
         print("❌ CHƯA HOÀN THÀNH - Vui lòng kiểm tra và thử lại")

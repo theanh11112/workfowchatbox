@@ -1,0 +1,61 @@
+{
+  "statistics": {
+    "total_documents": 3,
+    "processed_documents": 3,
+    "error_documents": 0,
+    "total_chunks": 3,
+    "average_chunks_per_doc": 1.0
+  },
+  "chunks": [
+    {
+      "id": "policy_001_chunk_000",
+      "content": "# CHÍNH SÁCH NGHỈ PHÉP ## 1. Phép năm - Nhân viên chính thức: 12 ngày phép/năm - Nhân viên thử việc: Không được sử dụng phép năm - Phép năm được tính theo năm dương lịch - Phép năm không sử dụng hết sẽ được chuyển sang năm sau (tối đa 5 ngày) ## 2. Phép ốm - Tối đa 15 ngày/năm, có giấy khám bệnh - Hưởng 75% lương cơ bản - Trên 3 ngày phải có xác nhận của bệnh viện ## 3. Phép không lương - Tối đa 10 ngày/năm - Phải được sự chấp thuận của Quản lý trước ít nhất 3 ngày - Không ảnh hưởng đến phép năm ## 4. Phép cưới - 3 ngày phép cho nhân viên kết hôn - Có giấy chứng nhận kết hôn - Áp dụng cho kết hôn lần đầu ## 5. Phép tang - 3 ngày cho cha/mẹ/vợ/chồng/con - 1 ngày cho anh/chị/em - Có giấy xác nhận hoặc thông báo ## 6. Thủ tục xin phép 1. Đăng ký qua hệ thống HRM 2. Được sự chấp thuận của Quản lý trực tiếp 3. Thông báo cho phòng HR 4. Bàn giao công việc trước khi nghỉ",
+      "document_id": "policy_001",
+      "category": "policy",
+      "allowed_roles": [
+        "employee",
+        "manager",
+        "hr"
+      ],
+      "title": "Chính sách nghỉ phép",
+      "description": "Quy định về các loại phép năm, phép ốm, phép không lương",
+      "chunk_index": 0,
+      "total_chunks": 1,
+      "file_path": "documents/policy/leave_policy.md",
+      "word_count": 202
+    },
+    {
+      "id": "salary_001_chunk_000",
+      "content": "# CƠ CẤU LƯƠNG THƯỞNG ## 1. Hệ thống lương - Lương cơ bản: Theo thỏa thuận hợp đồng - Lương hiệu quả: Dựa trên KPI hàng tháng - Phụ cấp: Chức vụ, đi lại, ăn trưa ## 2. Thưởng - Thưởng tháng 13: Trả vào Tết Dương lịch - Thưởng hiệu quả: Theo quý, dựa trên đánh giá - Thưởng đặc biệt: Dự án thành công ## 3. Lương tăng ca - Ngày thường: 150% lương giờ - Ngày nghỉ: 200% lương giờ - Ngày lễ: 300% lương giờ ## 4. Đóng bảo hiểm - Bảo hiểm xã hội: 8% (NV) + 17.5% (CTY) - Bảo hiểm y tế: 1.5% (NV) + 3% (CTY) - Bảo hiểm thất nghiệp: 1% (NV) + 1% (CTY) ## 5. Thanh toán lương - Ngày 15 hàng tháng - Chuyển khoản ngân hàng - Có phiếu lương điện tử",
+      "document_id": "salary_001",
+      "category": "salary",
+      "allowed_roles": [
+        "manager",
+        "hr"
+      ],
+      "title": "Cơ cấu lương thưởng",
+      "description": "Thang bảng lương và các chính sách thưởng",
+      "chunk_index": 0,
+      "total_chunks": 1,
+      "file_path": "documents/salary/salary_structure.md",
+      "word_count": 146
+    },
+    {
+      "id": "rules_001_chunk_000",
+      "content": "# NỘI QUY CÔNG TY ## 1. Giờ làm việc - Thứ 2 - Thứ 6: 8:30 - 17:30 - Nghỉ trưa: 12:00 - 13:00 - Đi trễ quá 15 phút: Tính 0.5 ngày công - Vắng mặt không phép: Trừ 1.5 ngày công ## 2. Trang phục - Từ Thứ 2 - Thứ 5: Áo sơ mi, quần tây - Thứ 6: Casual (không quá shorts, áo ba lỗ) - Mang thẻ nhân viên khi vào công ty ## 3. Bảo mật thông tin - Không chia sẻ thông tin nội bộ ra ngoài - Đăng xuất máy tính khi rời khỏi bàn - Không sử dụng USB cá nhân - Tuân thủ chính sách bảo mật dữ liệu ## 4. Sử dụng tài sản công ty - Máy tính, điện thoại chỉ phục vụ công việc - Báo cáo ngay khi có hư hỏng - Không tự ý cài đặt phần mềm - Không sử dụng cho mục đích cá nhân ## 5. Kỷ luật lao động - Vi phạm lần 1: Cảnh cáo bằng văn bản - Vi phạm lần 2: Trừ lương - Vi phạm nghiêm trọng: Chấm dứt hợp đồng",
+      "document_id": "rules_001",
+      "category": "rules",
+      "allowed_roles": [
+        "employee",
+        "manager",
+        "hr"
+      ],
+      "title": "Nội quy công ty",
+      "description": "Quy định về giờ làm việc, trang phục, kỷ luật",
+      "chunk_index": 0,
+      "total_chunks": 1,
+      "file_path": "documents/rules/company_rules.md",
+      "word_count": 195
+    }
+  ]
+}
