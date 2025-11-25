@@ -1,0 +1,53 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Tối ưu hóa pip và Python
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Cài đặt system dependencies cần thiết (có curl cho healthcheck)
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy requirements và cài đặt từng bước
+COPY requirements.txt .
+
+# Cài đặt dependencies với timeout ngắn và từng package
+RUN pip install --timeout 60 --no-cache-dir \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    pydantic==2.5.0
+
+RUN pip install --timeout 60 --no-cache-dir \
+    python-multipart==0.0.6 \
+    python-jose[cryptography]==3.3.0 \
+    passlib[bcrypt]==1.7.4
+
+RUN pip install --timeout 120 --no-cache-dir \
+    sentence-transformers==2.2.2 \
+    faiss-cpu==1.7.4
+
+RUN pip install --timeout 60 --no-cache-dir \
+    python-dotenv==1.0.0 \
+    requests==2.31.0
+
+# Copy source code
+COPY . .
+
+# Tạo thư mục logs
+RUN mkdir -p logs
+
+# Expose port
+EXPOSE 8001
+
+# Health check đơn giản hơn
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8001/ || exit 1
+
+# Run application
+CMD ["python", "-u", "main.py"]

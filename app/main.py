@@ -1,14 +1,22 @@
 # app/main.py
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import httpx
 import logging
+import time
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Import modules mới
+from auth import verify_api_key
+from rate_limiting import rate_limit_middleware, rate_limiter
+from custom_logging import setup_logging, log_chat_interaction, log_api_request, log_error
+from config import settings
+
+# Thiết lập logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Models
@@ -25,24 +33,24 @@ class ChatResponse(BaseModel):
     confidence: Optional[float] = None
     total_results: int = 0
 
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    version: str
-    dependencies: dict
+class RateLimitResponse(BaseModel):
+    remaining: int
+    limit: int
+    reset_time: int
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logger.info("🚀 Starting Company Chatbot Backend API")
+    logger.info("🚀 Starting Company Chatbot Backend API with Authentication")
+    logger.info(f"📊 Rate limit: {settings.RATE_LIMIT_REQUESTS_PER_MINUTE} requests/minute")
     yield
     # Shutdown
     logger.info("🛑 Shutting down Company Chatbot Backend API")
 
 app = FastAPI(
-    title="Company Chatbot Backend API",
-    description="Backend service for company chatbot - Replaces n8n workflow",
-    version="1.0.0",
+    title=settings.API_TITLE,
+    description=settings.API_DESCRIPTION,
+    version=settings.API_VERSION,
     lifespan=lifespan
 )
 
@@ -55,87 +63,154 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
-SEARCH_API_URL = "http://localhost:8000/search"
-SEARCH_TIMEOUT = 30
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Middleware để tính thời gian xử lý và log request"""
+    start_time = time.time()
+    
+    response = await call_next(request)
+    
+    process_time = time.time() - start_time
+    
+    # Log API request
+    user_id = "unknown"
+    try:
+        # Cố gắng lấy user_id từ body nếu là POST request
+        if request.method == "POST" and "chat" in request.url.path:
+            body = await request.body()
+            import json
+            body_data = json.loads(body)
+            user_id = body_data.get("user_id", "unknown")
+    except:
+        pass
+    
+    log_api_request(
+        user_id=user_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        status_code=response.status_code,
+        processing_time=process_time
+    )
+    
+    # Thêm headers
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
 
 @app.get("/")
 async def root():
     return {
-        "message": "Company Chatbot Backend API - Replaces n8n",
-        "version": "1.0.0",
+        "message": "Company Chatbot Backend API - Secure Version",
+        "version": settings.API_VERSION,
+        "features": ["Authentication", "Rate Limiting", "Enhanced Logging"],
         "endpoints": {
             "chat": "/api/v1/chat (POST)",
             "health": "/api/v1/health",
+            "rate_limit": "/api/v1/rate-limit/{user_id}",
             "docs": "/docs"
         }
     }
 
-@app.get("/api/v1/health", response_model=HealthResponse)
+@app.get("/api/v1/health")
 async def health_check():
-    """Health check với dependency verification"""
-    health_info = {
-        "status": "healthy",
-        "service": "Company Chatbot Backend API",
-        "version": "1.0.0",
-        "dependencies": {}
-    }
-    
-    # Check search API health
+    """Health check endpoint"""
     try:
+        # Kiểm tra search API
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:8000/health", timeout=5)
-            search_health = response.json()
-            health_info["dependencies"]["search_api"] = {
-                "status": "healthy" if response.status_code == 200 else "unhealthy",
-                "response": search_health
-            }
-            
-            if response.status_code != 200:
-                health_info["status"] = "degraded"
-                
-    except Exception as e:
-        health_info["dependencies"]["search_api"] = {
-            "status": "unhealthy",
-            "error": str(e)
+            search_health = await client.get("http://localhost:8000/health", timeout=5)
+        
+        return {
+            "status": "healthy",
+            "service": "Chatbot Backend API",
+            "version": settings.API_VERSION,
+            "search_api": "healthy" if search_health.status_code == 200 else "unhealthy",
+            "timestamp": time.time()
         }
-        health_info["status"] = "degraded"
+    except Exception as e:
+        log_error("system", "health_check_failed", str(e))
+        return {
+            "status": "degraded",
+            "service": "Chatbot Backend API", 
+            "error": "Search API unavailable",
+            "timestamp": time.time()
+        }
+
+@app.get("/api/v1/rate-limit/{user_id}", response_model=RateLimitResponse)
+async def get_rate_limit_info(user_id: str, api_key: str = Depends(verify_api_key)):
+    """Lấy thông tin rate limit cho user"""
+    remaining = rate_limiter.get_remaining_requests(user_id)
     
-    return health_info
+    return RateLimitResponse(
+        remaining=remaining,
+        limit=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+        reset_time=60  # Reset sau 60 giây
+    )
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(
+    request: ChatRequest, 
+    api_key: str = Depends(verify_api_key),
+    response: Response = None
+):
     """
-    Main chatbot endpoint - Replaces n8n workflow
+    Main chatbot endpoint với authentication và rate limiting
     """
+    start_time = time.time()
+    
     try:
-        logger.info(f"Chat request - User: {request.user_id}, Message: {request.message}")
+        # Kiểm tra rate limiting
+        await rate_limit_middleware(request.user_id)
         
-        # Call existing search API
+        logger.info(f"📨 Chat request - User: {request.user_id}, Message: {request.message}")
+        
+        # Gọi search API
         search_result = await call_search_api(request.user_id, request.message)
         
-        # Process and format response (replaces n8n code node)
-        response = process_search_result(search_result)
+        # Xử lý và format response
+        chat_response = process_search_result(search_result)
         
-        logger.info(f"Chat response - Success: {response.success}, Results: {response.total_results}")
-        return response
+        # Tính thời gian xử lý
+        response_time = time.time() - start_time
         
+        # Ghi log
+        log_chat_interaction(
+            user_id=request.user_id,
+            message=request.message,
+            response=chat_response.dict(),
+            response_time=response_time
+        )
+        
+        logger.info(f"✅ Chat response - User: {request.user_id}, Success: {chat_response.success}, Time: {response_time:.2f}s")
+        
+        # Thêm rate limit info vào header (sửa lỗi ở đây)
+        if response:
+            remaining = rate_limiter.get_remaining_requests(request.user_id)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Limit"] = str(settings.RATE_LIMIT_REQUESTS_PER_MINUTE)
+        
+        return chat_response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (rate limit, auth errors)
+        raise
     except httpx.RequestError as e:
-        logger.error(f"Search API connection error: {e}")
+        logger.error(f"🔌 Search API connection error: {e}")
+        log_error(request.user_id, "search_api_error", str(e))
         raise HTTPException(
             status_code=503,
             detail="Search service temporarily unavailable"
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"💥 Unexpected error: {e}")
+        log_error(request.user_id, "unexpected_error", str(e), {"message": request.message})
         raise HTTPException(
             status_code=500,
             detail="Internal server error"
         )
 
 async def call_search_api(user_id: str, query: str):
-    """Call the existing search API (port 8000)"""
-    async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
+    """Gọi search API hiện có"""
+    async with httpx.AsyncClient(timeout=settings.SEARCH_TIMEOUT) as client:
         payload = {
             "user_id": user_id,
             "query": query,
@@ -143,16 +218,15 @@ async def call_search_api(user_id: str, query: str):
         }
         
         response = await client.post(
-            SEARCH_API_URL,
+            settings.SEARCH_API_URL,
             json=payload
         )
         response.raise_for_status()
         return response.json()
 
 def process_search_result(search_result: dict) -> ChatResponse:
-    """Process search result and format chatbot response - Replaces n8n processing"""
+    """Xử lý search result và format chatbot response"""
     
-    # Check for errors
     if "error" in search_result:
         return ChatResponse(
             success=False,
@@ -170,11 +244,11 @@ def process_search_result(search_result: dict) -> ChatResponse:
             total_results=0
         )
     
-    # Get best result
+    # Lấy kết quả tốt nhất
     best_result = results[0]
     metadata = best_result.get("metadata", {})
     
-    # Format response (replaces n8n formatting logic)
+    # Format response
     response_text = format_chat_response(best_result, metadata)
     
     return ChatResponse(
@@ -187,12 +261,12 @@ def process_search_result(search_result: dict) -> ChatResponse:
     )
 
 def format_chat_response(result: dict, metadata: dict) -> str:
-    """Format the chatbot response text - Replaces n8n template"""
+    """Format chatbot response text"""
     title = metadata.get("title", "Tài liệu")
     content = result.get("content", "")
     category = metadata.get("category", "general")
     
-    # Truncate content for readability
+    # Giới hạn độ dài content
     truncated_content = content[:250] + "..." if len(content) > 250 else content
     
     return f"""🤖 **Company Chatbot Response**
@@ -208,8 +282,9 @@ Dựa trên tài liệu công ty, tôi tìm thấy thông tin sau:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8001,
-        log_level="info"
+        "main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        log_level=settings.LOG_LEVEL.lower(),
+        reload=settings.DEBUG
     )
