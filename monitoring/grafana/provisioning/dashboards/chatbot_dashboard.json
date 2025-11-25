@@ -1,0 +1,53 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Chatbot System Monitoring",
+    "tags": ["chatbot", "monitoring"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"chatbot-api\"}",
+            "legendFormat": "Chatbot API"
+          },
+          {
+            "expr": "up{job=\"search-api\"}",
+            "legendFormat": "Search API"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Container CPU Usage",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{container=~\"chatbot.*\"}[5m]) * 100"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Container Memory Usage",
+        "type": "gauge", 
+        "targets": [
+          {
+            "expr": "container_memory_usage_bytes{container=~\"chatbot.*\"} / 1024 / 1024"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      }
+    ],
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  },
+  "overwrite": true
+}
