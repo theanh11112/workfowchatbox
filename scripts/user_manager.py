@@ -1,4 +1,4 @@
-# scripts/user_manager.py
+# scripts/user_manager.py - COMPLETE VERSION
 import json
 import sqlite3
 import os
@@ -187,6 +187,70 @@ class UserManager:
         conn.close()
         return True
 
+    # 🆕 THÊM METHOD: CREATE_USER - QUAN TRỌNG CHO SEARCH API
+    def create_user(self, user_id: str, username: str, email: str, role: str = "employee", department: str = "General"):
+        """Tạo user mới trong database - DÙNG CHO SEARCH API"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Kiểm tra role có hợp lệ không
+            cursor.execute('SELECT role FROM roles_permissions WHERE role = ?', (role,))
+            if not cursor.fetchone():
+                print(f"❌ [USER_MANAGER] Role '{role}' không hợp lệ, using 'employee'")
+                role = "employee"  # Fallback to employee
+            
+            # Tạo user mới
+            cursor.execute('''
+                INSERT OR REPLACE INTO users (id, username, email, role, department)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, username, email, role, department))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ [USER_MANAGER] Created user: {username} ({user_id}) with role: {role}")
+            return {
+                "id": user_id,
+                "username": username,
+                "email": email,
+                "role": role,
+                "department": department
+            }
+        except Exception as e:
+            print(f"❌ [USER_MANAGER] Error creating user {user_id}: {e}")
+            return None
+
+    # 🆕 THÊM METHOD: XÓA USER (CHO TESTING)
+    def delete_user(self, user_id):
+        """Xóa user (cho testing)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ [USER_MANAGER] Deleted user: {user_id}")
+            return True
+        except Exception as e:
+            print(f"❌ [USER_MANAGER] Error deleting user {user_id}: {e}")
+            return False
+
+    # 🆕 THÊM METHOD: KIỂM TRA ROLE HỢP LỆ
+    def is_valid_role(self, role):
+        """Kiểm tra role có hợp lệ không"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT role FROM roles_permissions WHERE role = ?', (role,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result is not None
+
 def main():
     # Khởi tạo user manager
     print("🚀 KHỞI TẠO USER DATABASE VÀ ROLE SYSTEM")
@@ -227,6 +291,32 @@ def main():
             has_access = category in permissions['allowed_categories']
             status = "✅ ĐƯỢC PHÉP" if has_access else "❌ KHÔNG ĐƯỢC PHÉP"
             print(f"   {scenario}: {status}")
+    
+    # 🆕 TEST CREATE_USER METHOD
+    print("\n🧪 TEST CREATE_USER METHOD:")
+    test_new_user = {
+        'user_id': 'test_keycloak_user',
+        'username': 'Test Keycloak User',
+        'email': 'test@company.com',
+        'role': 'admin',
+        'department': 'IT'
+    }
+    
+    new_user = user_mgr.create_user(**test_new_user)
+    if new_user:
+        print(f"✅ Tạo user thành công: {new_user}")
+        
+        # Kiểm tra permissions của user mới
+        permissions = user_mgr.get_user_permissions('test_keycloak_user')
+        if permissions:
+            print(f"✅ Permissions của user mới: {permissions['role']}")
+            print(f"✅ Categories được phép: {permissions['allowed_categories']}")
+        
+        # Xóa user test
+        user_mgr.delete_user('test_keycloak_user')
+        print("✅ Đã xóa user test")
+    else:
+        print("❌ Không thể tạo user test")
     
     print(f"\n🎉 HOÀN THÀNH USER DATABASE")
     print(f"📁 Database: ./company_chat.db")
